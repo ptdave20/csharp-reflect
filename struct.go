@@ -8,6 +8,56 @@ import (
 	"strings"
 )
 
+type Options struct {
+	Namespace           string
+	JsonProperty        bool
+	OverrideListToArray bool
+	types               map[reflect.Kind]string
+	BaseUsings          []string
+	IdentType           int
+	IdentSpacing        int
+	OutputPath          string
+	SingleFile          bool
+}
+
+const (
+	IDENT_TAB   = 0
+	IDENT_SPACE = 1
+)
+
+func New(namespace string) *Options {
+	opt := &Options{
+		types:               make(map[reflect.Kind]string),
+		Namespace:           namespace,
+		JsonProperty:        false,
+		OverrideListToArray: false,
+		IdentType:           IDENT_TAB,
+		IdentSpacing:        4,
+		SingleFile:          false,
+	}
+
+	opt.BaseUsings = []string{
+		"using System;",
+		"using System.Collection.Generics",
+	}
+
+	opt.types[reflect.Int] = "int"
+	opt.types[reflect.Int8] = "byte"
+	opt.types[reflect.Int16] = "Int16"
+	opt.types[reflect.Int32] = "int"
+	opt.types[reflect.Int64] = "long"
+	opt.types[reflect.Uint] = "unsigned int"
+	opt.types[reflect.Uint8] = "byte"
+	opt.types[reflect.Uint16] = "UInt16"
+	opt.types[reflect.Uint32] = "unsigned int"
+	opt.types[reflect.Uint64] = "unsigned long"
+	opt.types[reflect.Bool] = "bool"
+	opt.types[reflect.Float32] = "float"
+	opt.types[reflect.Float64] = "double"
+
+	return opt
+}
+
 func FieldToCSharpType(t reflect.Type, f reflect.StructField, processed map[string]string) (string, bool) {
 	retFmt := "%s"
 	vType := ""
@@ -163,4 +213,8 @@ func OutputToCSharp(obj interface{}, namespace string, jsonProperty bool, output
 		ioutil.WriteFile(path.Join(outputPath, k+".cs"), []byte(typeObject[k]), 0644)
 	}
 	return nil
+}
+
+func ReadPackage() {
+
 }
