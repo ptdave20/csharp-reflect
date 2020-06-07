@@ -1,6 +1,21 @@
 package csharp_reflect
 
-import "testing"
+import (
+	"os"
+	"path"
+	"testing"
+)
+
+func FilesExist(outputPath string, t *testing.T, files ...string) bool {
+	for _, file := range files {
+		filePath := path.Join(outputPath, file)
+		if _, err := os.Stat(filePath); err != nil && os.IsNotExist(err) {
+			t.Failed()
+			return false
+		}
+	}
+	return true
+}
 
 type SimpleTest struct {
 	A int
@@ -13,6 +28,8 @@ func TestSimple(t *testing.T) {
 	options := New("Test")
 	options.OutputPath = "./TestOutput/SimpleTest"
 	ConvertObject(testStruct, options)
+	// Check to see which files are in the directory
+	FilesExist(options.OutputPath, t, "SimpleTest.cs")
 }
 
 type EmbedTest struct {
@@ -28,6 +45,9 @@ func TestEmbed(t *testing.T) {
 	options := New("Test")
 	options.OutputPath = "./TestOutput/EmbedTest"
 	ConvertObject(testStruct, options)
+
+	// Check to see which files are in the directory
+	FilesExist(options.OutputPath, t, "SimpleTest.cs", "EmbedTest.cs")
 }
 
 type ArrayTest struct {
@@ -43,4 +63,7 @@ func TestArray(t *testing.T) {
 	options := New("Test")
 	options.OutputPath = "./TestOutput/ArrayTest"
 	ConvertObject(testStruct, options)
+
+	// Check to see which files are in the directory
+	FilesExist(options.OutputPath, t, "SimpleTest.cs", "ArrayTest.cs")
 }
