@@ -10,7 +10,10 @@ type SimpleTest struct {
 
 func TestSimple(t *testing.T) {
 	var testStruct SimpleTest
-	OutputToCSharp(testStruct, "test", false, "./TestOutput")
+	//OutputToCSharp(testStruct, "test", false, "./TestOutput")
+	options := New("Test")
+	options.OutputPath = "./TestOutput"
+	ConvertObject(testStruct, options)
 }
 
 type EmbedTest struct {
@@ -22,7 +25,10 @@ type EmbedTest struct {
 
 func TestEmbed(t *testing.T) {
 	var testStruct EmbedTest
-	OutputToCSharp(testStruct, "test", false, "./TestOutput")
+	//OutputToCSharp(testStruct, "test", false, "./TestOutput")
+	options := New("Test")
+	options.OutputPath = "./TestOutput"
+	ConvertObject(testStruct, options)
 }
 
 type ArrayTest struct {
@@ -34,5 +40,8 @@ type ArrayTest struct {
 
 func TestArray(t *testing.T) {
 	var testStruct ArrayTest
-	OutputToCSharp(testStruct, "test", false, "./TestOutput")
+	//OutputToCSharp(testStruct, "test", false, "./TestOutput")
+	options := New("Test")
+	options.OutputPath = "./TestOutput"
+	ConvertObject(testStruct, options)
 }

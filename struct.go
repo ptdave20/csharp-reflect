@@ -2,9 +2,12 @@ package csharp_reflect
 
 import (
 	"fmt"
+	tt "github.com/morphar/go-texttools"
 	"io/ioutil"
+	"log"
 	"path"
 	"reflect"
+	"sort"
 	"strings"
 )
 
@@ -14,15 +17,19 @@ type Options struct {
 	OverrideListToArray bool
 	types               map[reflect.Kind]string
 	BaseUsings          []string
-	IdentType           int
-	IdentSpacing        int
+	IndentType          INDENT
+	IndentSpacing       int
 	OutputPath          string
 	SingleFile          bool
+	Converted           map[reflect.Type]bool
+	SortProperties      bool
 }
 
+type INDENT int
+
 const (
-	IDENT_TAB   = 0
-	IDENT_SPACE = 1
+	INDENT_TAB INDENT = iota
+	INDENT_SPACE
 )
 
 func New(namespace string) *Options {
@@ -31,14 +38,16 @@ func New(namespace string) *Options {
 		Namespace:           namespace,
 		JsonProperty:        false,
 		OverrideListToArray: false,
-		IdentType:           IDENT_TAB,
-		IdentSpacing:        4,
+		IndentType:          INDENT_TAB,
+		IndentSpacing:       4,
 		SingleFile:          false,
+		Converted:           make(map[reflect.Type]bool),
+		SortProperties:      true,
 	}
 
 	opt.BaseUsings = []string{
-		"using System;",
-		"using System.Collection.Generics",
+		"using System;\r\n",
+		"using System.Collection.Generics;\r\n",
 	}
 
 	opt.types[reflect.Int] = "int"
@@ -54,167 +63,129 @@ func New(namespace string) *Options {
 	opt.types[reflect.Bool] = "bool"
 	opt.types[reflect.Float32] = "float"
 	opt.types[reflect.Float64] = "double"
+	opt.types[reflect.String] = "string"
 
 	return opt
 }
 
-func FieldToCSharpType(t reflect.Type, f reflect.StructField, processed map[string]string) (string, bool) {
-	retFmt := "%s"
-	vType := ""
-	unknown := true
-	array := false
-	if strings.Index(f.Type.String(), "[]") > -1 {
-		// We have an array
-		retFmt = "List<%s>"
-		array = true
+func outputEnumerable(objectType string, objectName string, options *Options) string {
+	if options.OverrideListToArray {
+		return outputProperty(objectType+"[]", objectName, options)
+	}
+	return outputProperty("List<"+objectType+">", objectName, options)
+}
+
+func outputProperty(objectType string, objectName string, options *Options) string {
+	if strings.Contains(objectType, ".") {
+		objectType = strings.Split(objectType, ".")[1]
+	}
+	return fmt.Sprintf("public %s %s { get; set; }\r\n", objectType, objectName)
+}
+
+func convertField(f reflect.StructField, options *Options) string {
+	if f.Type.Kind() == reflect.Ptr {
+
+	}
+	if f.Type.Kind() == reflect.Slice {
+		// We have a slice of somekind
+		return outputEnumerable(f.Type.Elem().Name(), f.Name, options)
+	}
+	if f.Type.Kind() == reflect.Struct {
+		ConvertType(f.Type, options)
+
+		// Have we already processed this?
+		if options.Converted[f.Type] {
+			return outputProperty(f.Type.String(), f.Name, options)
+		}
+
 	}
 
-	tName := f.Type.Name()
-	if array {
-		tName = f.Type.Elem().Name()
-	}
-	vType = tName
-
-	switch tName {
-	case "int":
-		vType = "int"
-		unknown = false
-		break
-	case "int32":
-		vType = "int"
-		unknown = false
-		break
-	case "int16":
-		vType = "Int16"
-		unknown = false
-		break
-	case "uint16":
-		vType = "UInt16"
-		unknown = false
-		break
-	case "uint":
-		vType = "unsigned int"
-		unknown = false
-		break
-	case "uint32":
-		vType = "unsigned int"
-		unknown = false
-		break
-	case "int64":
-		vType = "long"
-		unknown = false
-		break
-	case "uint64":
-		vType = "long"
-		unknown = false
-		break
-	case "bool":
-		vType = "bool"
-		unknown = false
-		break
-	case "byte":
-		vType = "byte"
-		unknown = false
-		break
-	case "int8":
-		vType = "byte"
-		unknown = false
-		break
-	case "string":
-		vType = "string"
-		unknown = false
-		break
-	case "float32":
-		vType = "float"
-		unknown = false
-		break
+	propType := options.types[f.Type.Kind()]
+	if len(propType) > 0 {
+		return outputProperty(propType, f.Name, options)
 	}
 
-	if unknown {
-		// Is this object in our processed list?
-		for k := range processed {
-			if k == tName {
-				unknown = false
-				vType = tName
-				break
+	return ""
+}
+
+func indent(multiple int, value string, options *Options) string {
+	if value == "" {
+		return ""
+	}
+	ret := ""
+	if options.IndentType == INDENT_TAB {
+		for i := 0; i < multiple; i++ {
+			ret += "\t"
+		}
+	} else if options.IndentType == INDENT_SPACE {
+		for i := 0; i < multiple; i++ {
+			for s := 0; s < options.IndentSpacing; s++ {
+				ret += " "
 			}
 		}
 	}
-
-	return fmt.Sprintf(retFmt, vType), unknown
+	return ret + value
 }
 
-func processType(t reflect.Type, namespace string, jsonProperty bool, processed map[string]string) map[string]string {
+func ConvertType(t reflect.Type, options *Options) {
+	if options.Converted[t] {
+		return
+	}
 	typeName := t.Name()
+	options.Converted[t] = true
 	if strings.Contains(typeName, ".") {
 		typeName = strings.Split(typeName, ".")[1]
 	}
-	classStrFmt := "\tpublic class " + typeName + " {\r\n%s\t}"
-	properties := ""
 
-	for i := 0; i < t.NumField(); i++ {
-		f := t.Field(i)
-		fieldType, unknown := FieldToCSharpType(t, f, processed)
+	var classProps = make(map[string]string)
 
-		if unknown {
-			processed = processType(f.Type, namespace, jsonProperty, processed)
-		}
+	// Pascal Case the object
+	typeName = tt.PascalCase(typeName)
+	for fieldIndex := 0; fieldIndex < t.NumField(); fieldIndex++ {
+		field := t.Field(fieldIndex)
 
-		fieldFmt := "\t\tpublic %s %s { get; set; }\r\n"
-		properties += fmt.Sprintf(fieldFmt, fieldType, f.Name)
+		propertyName := field.Name
+		classProps[propertyName] = indent(2, convertField(field, options), options)
+	}
+	keys := make([]string, 0, len(classProps))
+	for k := range classProps {
+		keys = append(keys, k)
 	}
 
-	class := fmt.Sprintf(classStrFmt, properties)
+	// Sort the fields
+	if options.SortProperties {
+		sort.Strings(keys)
+	}
 
-	processed[typeName] = class
+	props := ""
+	for _, k := range keys {
+		props += classProps[k]
+	}
 
-	return processed
+	// Prepare a the class
+	classPrefix := "public class " + typeName + " {\r\n"
+	classPostfix := "}"
+	classPrefix = indent(1, classPrefix, options)
+	classPostfix = indent(1, classPostfix, options)
+	class := classPrefix + props + classPostfix
+
+	// Attach namespace
+	namespace := fmt.Sprintf("namespace %s {\r\n%s\r\n}", options.Namespace, class)
+
+	// Attach usings
+	result := ""
+	for _, v := range options.BaseUsings {
+		result += v
+	}
+	result += "\r\n" + namespace
+
+	filePath := path.Join(options.OutputPath, typeName+".cs")
+	err := ioutil.WriteFile(filePath, []byte(result), 0644)
+	if err != nil {
+		log.Fatal(err)
+	}
 }
-
-func processObject(object interface{}, namespace string, jsonProperty bool, processed map[string]string) map[string]string {
-	t := reflect.TypeOf(object)
-	typeName := t.String()
-	if strings.Contains(typeName, ".") {
-		typeName = strings.Split(typeName, ".")[1]
-	}
-	classStrFmt := "\tpublic class " + typeName + " {\r\n%s\t}"
-	properties := ""
-
-	for i := 0; i < t.NumField(); i++ {
-		f := t.Field(i)
-		fieldType, unknown := FieldToCSharpType(t, f, processed)
-
-		if unknown {
-			processed = processType(f.Type, namespace, jsonProperty, processed)
-		}
-
-		fieldFmt := "\t\tpublic %s %s { get; set; }\r\n"
-		properties += fmt.Sprintf(fieldFmt, strings.TrimSpace(fieldType), f.Name)
-	}
-
-	class := fmt.Sprintf(classStrFmt, properties)
-
-	processed[typeName] = class
-
-	return processed
-}
-
-func OutputToCSharp(obj interface{}, namespace string, jsonProperty bool, outputPath string) error {
-	var typeObject map[string]string = make(map[string]string)
-	typeObject = processObject(obj, namespace, jsonProperty, typeObject)
-	// Add usings
-	for k, v := range typeObject {
-		usings := "using System;\r\n"
-		// Check for collection
-		if strings.Contains(v, "List<") {
-			usings += "using System.Collections.Generic;\r\n"
-		}
-		typeObject[k] = fmt.Sprintf("%s\r\nnamespace %s {\r\n%s\r\n}", usings, namespace, v)
-		ioutil.WriteFile(path.Join(outputPath, k+".cs"), []byte(typeObject[k]), 0644)
-	}
-	return nil
-}
-
-func ReadPackage() {
-
+func ConvertObject(t interface{}, options *Options) {
+	rT := reflect.TypeOf(t)
+	ConvertType(rT, options)
 }
